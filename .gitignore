@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Runtime state (never committed)
+var/runtime/
+var/sandbox/
+var/artifacts/
+
+# Memory (never committed — personal data)
+var/memory/
+
+# Workspaces (task-specific, not source)
+var/workspaces/
+
+# Generated audio
+data/audio/*.wav
+data/audio/*.mp3
+
+# Logs
+*.log
+logs/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
