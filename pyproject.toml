@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beta-computer-agent"
+version = "0.1.0"
+description = "Beta Computer Agent — Shared-Environment Multi-Agent System"
+requires-python = ">=3.11"
+# No runtime dependencies in this milestone (stdlib only).
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths  = ["tests"]
+asyncio_mode = "auto"
+markers = [
+  "windows_tts: integration tests that require Windows SAPI voices",
+  "manual: requires human interaction (speakers, screen) — not for CI",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

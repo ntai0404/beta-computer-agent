@@ -1,57 +1,43 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
 *.pyo
 *.pyd
-*.egg
+.pytest_cache/
 *.egg-info/
 dist/
 build/
-.eggs/
 
-# Virtual environments
+# Environments
 .venv/
 venv/
 env/
-ENV/
 
-# Environment files
+# Secrets
 .env
 .env.local
-.env.*.local
 
 # IDE
 .vscode/
 .idea/
-*.suo
-*.user
 
 # OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Runtime state (never committed)
+# Runtime state — never committed
 var/runtime/
 var/sandbox/
-var/artifacts/
 
-# Memory (never committed — personal data)
-var/memory/
+# Cache — never committed
+var/cache/
 
-# Workspaces (task-specific, not source)
-var/workspaces/
+# Downloaded models — never committed (large binary)
+var/models/
 
-# Generated audio
-data/audio/*.wav
-data/audio/*.mp3
+# Generated audio artifacts — keep dir structure, not files
+var/artifacts/audio/*.wav
+var/artifacts/audio/*.mp3
 
 # Logs
 *.log
-logs/
-
-# Pytest / coverage
-.pytest_cache/
-.coverage
-htmlcov/
