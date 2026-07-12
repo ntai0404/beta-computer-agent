@@ -38,11 +38,9 @@ External local source (User provides path: C:\Downloads\Model.pth)
 
 ---
 
-## The Import Manifest
+## 2. The Import Plan (`import-plan.json`)
 
-Every imported asset will have an accompanying metadata entry in `import-plan.json` initially, and eventually stored in `var/assets/characters/<profile_id>/metadata/`.
-
-**Concept Schema (`import-plan.json`):**
+**Concept Schema:**
 ```json
 [
   {
@@ -61,6 +59,37 @@ Every imported asset will have an accompanying metadata entry in `import-plan.js
   }
 ]
 ```
+
+## 3. The Provenance Manifest (`import-manifest_*.json`)
+
+After executing an import batch, a provenance manifest is saved to `var/assets/characters/<profile_id>/metadata/`. This serves as an audit trail for the assets actually copied into the internal storage.
+
+**Concept Schema:**
+```json
+[
+  {
+    "source_type": "desktop-gremlin",
+    "source_path": "C:\\Users\\example\\Desktop_Gremlin\\Models\\matikanetannhauser\\sprite.png",
+    "imported_at": "2026-07-12T10:30:00Z",
+    "canonical_character_id": "matikanetannhauser",
+    "persona_alias": "mambo",
+    "asset_type": "avatar_candidate",
+    "original_filename": "sprite.png",
+    "destination_path": "var/assets/characters/mambo/avatar/sprite.png",
+    "checksum": "sha256_hash_here",
+    "import_status": "imported",
+    "license_note": "User-supplied external asset.",
+    "provenance": "Local file inspection."
+  }
+]
+```
+
+Valid `import_status` values:
+- `imported`: Asset successfully copied.
+- `already_present`: Asset existed with identical checksum; skipped copy.
+- `skipped`: Asset was not in the approval list.
+- `conflict`: Destination existed with a different checksum; aborted copy.
+- `failed`: An error occurred during validation or atomic copy.
 
 ---
 
