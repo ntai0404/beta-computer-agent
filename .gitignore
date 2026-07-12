@@ -32,12 +32,25 @@ var/sandbox/
 # Cache — never committed
 var/cache/
 
-# Downloaded models — never committed (large binary)
+# Downloaded / extracted models — never committed (large binary)
 var/models/
 
-# Generated audio artifacts — keep dir structure, not files
-var/artifacts/audio/*.wav
-var/artifacts/audio/*.mp3
+# Character assets — large external binaries, never committed
+var/assets/characters/**
+!var/assets/characters/**/.gitkeep
+
+# Generated audio artifacts
+var/artifacts/audio/**
+!var/artifacts/audio/.gitkeep
+
+# Voice analysis results
+var/artifacts/voice-analysis/**
+!var/artifacts/voice-analysis/.gitkeep
+
+# Reference audio/video — copyrighted external content
+# (user-supplied, must not be committed)
+profiles/characters/*/references/
 
 # Logs
 *.log
+

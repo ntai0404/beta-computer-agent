@@ -5,8 +5,15 @@ Thin CLI entry point for the Beta TTS pipeline.
 
 Usage:
   python apps/cli/speak.py "Xin chào, tôi là Beta."
+  python apps/cli/speak.py --character-profile mambo "Xin chào."
   python apps/cli/speak.py "Hello" --no-play --output var/artifacts/audio/out.wav
   python apps/cli/speak.py --list-voices
+
+When --character-profile is used:
+  - The character profile is loaded (if it exists).
+  - Available Voice Hints are applied to the provider (within its capability).
+  - A warning is printed if the active provider cannot reproduce the character voice.
+  - Output is NEVER labeled as a cloned character voice.
 
 This file contains no business logic.
 It constructs a SpeechRequest and calls VoiceService.
@@ -39,6 +46,58 @@ def build_service(no_play: bool) -> VoiceService:
     return VoiceService(tts_provider=provider, audio_player=player)
 
 
+def apply_character_profile_hints(
+    character_profile_id: str,
+    base_rate: int,
+    base_volume: int,
+) -> tuple[int, int, list[str]]:
+    """
+    Attempt to load Voice Hints for the character profile and map to
+    Windows System TTS parameters.
+
+    Always prints a disclaimer that the output is NOT a cloned voice.
+    Returns (rate, volume, warnings).
+    """
+    _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    hint_path = (
+        _PROJECT_ROOT
+        / "var" / "artifacts" / "voice-analysis"
+        / f"{character_profile_id}_voice_hint.json"
+    )
+
+    # Permanent disclaimer — always emitted when a character profile is used
+    disclaimer = [
+        f"[{character_profile_id}] Active provider: windows-system (NOT a cloned character voice).",
+        f"[{character_profile_id}] Label: Beta default system voice — styled with available Windows hints.",
+        "Windows System TTS cannot reproduce character timbre, emotional nuance, or exact pitch.",
+    ]
+
+    if not hint_path.exists():
+        disclaimer.append(
+            f"No Voice Hint found for '{character_profile_id}' "
+            f"(expected: {hint_path}). "
+            "Run: python apps/cli/analyze_voice.py --character-profile "
+            f"{character_profile_id} --input <reference.wav>"
+        )
+        return base_rate, base_volume, disclaimer
+
+    import json as _json
+    try:
+        hint_data = _json.loads(hint_path.read_text(encoding="utf-8"))
+        # Hint mapping is limited — only rate/volume are usable by Windows TTS
+        rate = base_rate
+        volume = base_volume
+        disclaimer.append(
+            f"Voice Hint loaded from {hint_path} "
+            f"(confidence: {hint_data.get('overall_confidence', 'unknown')}). "
+            "Only speaking_rate → SAPI Rate and energy → Volume are applied."
+        )
+        return rate, volume, disclaimer
+    except Exception as exc:
+        disclaimer.append(f"Failed to load Voice Hint: {exc}")
+        return base_rate, base_volume, disclaimer
+
+
 def cmd_list_voices() -> int:
     provider = WindowsSystemTtsProvider()
     voices = provider.list_voices()
@@ -57,12 +116,21 @@ def cmd_speak(args: argparse.Namespace) -> int:
     if args.output:
         output_path = Path(args.output).resolve()
 
+    rate = args.rate
+    volume = args.volume
+    profile_warnings: list[str] = []
+
+    if args.character_profile:
+        rate, volume, profile_warnings = apply_character_profile_hints(
+            args.character_profile, rate, volume
+        )
+
     try:
         request = SpeechRequest(
             text=args.text,
             voice_profile_id=args.voice or None,
-            rate=args.rate,
-            volume=args.volume,
+            rate=rate,
+            volume=volume,
             output_path=output_path,
             play_audio=not args.no_play,
         )
@@ -84,9 +152,12 @@ def cmd_speak(args: argparse.Namespace) -> int:
     print(f"Size     : {result.artifact.size_bytes:,} bytes")
     if result.duration_ms is not None:
         print(f"Duration : {result.duration_ms} ms")
+    if args.character_profile:
+        print(f"Profile  : {args.character_profile} (alias — canonical identity unresolved)")
     print(f"Played   : {'yes' if result.played else 'no'}")
-    if result.warnings:
-        for w in result.warnings:
+    all_warnings = profile_warnings + result.warnings
+    if all_warnings:
+        for w in all_warnings:
             print(f"Warning  : {w}", file=sys.stderr)
     return 0
 
@@ -101,6 +172,17 @@ def main() -> int:
         nargs="?",
         default=None,
         help="Text to synthesize.",
+    )
+    parser.add_argument(
+        "--character-profile",
+        default=None,
+        metavar="PROFILE_ID",
+        dest="character_profile",
+        help=(
+            "Character profile ID (e.g. 'mambo'). "
+            "Loads Voice Hints if available. "
+            "WARNING: Windows TTS cannot clone character voice."
+        ),
     )
     parser.add_argument(
         "--voice",
