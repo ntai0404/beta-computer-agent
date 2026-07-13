@@ -1,196 +1,135 @@
 """
 interaction/voice/contracts.py
 
-Public data contracts for the Voice Interaction layer.
-
-These types are the boundary between callers (Primary Agent, CLI, future UI)
-and the VoiceService. They contain no provider-specific logic.
+Core contracts for the Beta Voice Engine.
+Defines abstractions for TTS, Voice Conversion, and Playback.
 """
 
 from __future__ import annotations
 
-import re
+import enum
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# Windows SAPI rate range: -10 (slowest) to 10 (fastest), 0 = normal.
-RATE_MIN: int = -10
-RATE_MAX: int = 10
-RATE_DEFAULT: int = 0
-
-VOLUME_MIN: int = 0
-VOLUME_MAX: int = 100
-VOLUME_DEFAULT: int = 100
-
-# Allowed root directories for audio output (relative to project root).
-# Absolute paths are resolved at validation time.
-_ALLOWED_OUTPUT_ROOTS: tuple[str, ...] = ("var",)
-
-# ---------------------------------------------------------------------------
-# SpeechRequest
-# ---------------------------------------------------------------------------
+from typing import Protocol
 
 
-@dataclass(frozen=True)
+class ReadinessStatus(str, enum.Enum):
+    FALLBACK_READY = "fallback_ready"
+    CONVERSION_CANDIDATE = "conversion_candidate"
+    CONVERSION_READY = "conversion_ready"
+    DIRECT_TTS_CANDIDATE = "direct_tts_candidate"
+    DIRECT_TTS_READY = "direct_tts_ready"
+    BLOCKED = "blocked"
+    UNRESOLVED = "unresolved"
+
+
+class PipelinePreference(str, enum.Enum):
+    AUTO = "auto"
+    SYSTEM_TTS = "system_tts"
+    BASE_TTS_ONLY = "base_tts_only"
+    BASE_TTS_PLUS_CONVERSION = "base_tts_plus_conversion"
+    DIRECT_CHARACTER_TTS = "direct_character_tts"
+
+
+@dataclass
+class VoiceHint:
+    speaking_rate: float | None = None
+    volume: float | None = None
+    installed_voice_preference: str | None = None
+    style_metadata: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class ResolvedVoiceProfile:
+    profile_id: str
+    character_profile_id: str
+    persona_alias: str
+    canonical_identity_status: str
+    selected_pipeline: PipelinePreference
+    selected_tts_provider: str
+    selected_conversion_provider: str | None
+    selected_voice_name: str | None
+    voice_hint: VoiceHint | None
+    model_paths: dict[str, str]
+    provenance: dict[str, str]
+    warnings: list[str]
+    readiness_status: ReadinessStatus
+
+
+@dataclass
 class SpeechRequest:
-    """
-    A request for the system to speak a piece of text.
-
-    Callers construct this object. VoiceService validates and fulfils it.
-    No provider-specific fields belong here.
-    """
-
     text: str
-    """The text to synthesize. Must not be empty."""
-
-    voice_profile_id: Optional[str] = None
-    """
-    The ID of a voice profile (e.g. 'mambo').
-    If None, the provider selects its default.
-    """
-
+    character_profile_id: str
     language: str = "vi-VN"
-    """BCP-47 language tag. Passed as a hint; actual support depends on provider."""
-
-    rate: int = RATE_DEFAULT
-    """Speech rate. Windows SAPI range: -10 to +10."""
-
-    volume: int = VOLUME_DEFAULT
-    """Volume 0–100."""
-
-    output_path: Optional[Path] = None
-    """
-    Desired WAV output path. Must be inside var/.
-    If None, the provider chooses a unique path under var/artifacts/audio/.
-    """
-
+    rate: float = 1.0
+    volume: float = 1.0
     play_audio: bool = True
-    """If True, play the generated audio immediately after synthesis."""
-
-    interruptible: bool = True
-    """Reserved for future streaming/interruptible playback support."""
-
+    output_path: Path | None = None
+    pipeline_preference: PipelinePreference = PipelinePreference.AUTO
+    allow_untrusted_model: bool = False
     metadata: dict = field(default_factory=dict)
-    """Caller-supplied pass-through metadata attached to the result."""
-
-    def __post_init__(self) -> None:
-        _validate_speech_request(self)
 
 
-def _validate_speech_request(req: SpeechRequest) -> None:
-    """Raise ValueError with a clear message if the request is invalid."""
-    if not req.text or not req.text.strip():
-        raise ValueError("SpeechRequest.text must not be empty.")
-
-    if not (RATE_MIN <= req.rate <= RATE_MAX):
-        raise ValueError(
-            f"SpeechRequest.rate must be between {RATE_MIN} and {RATE_MAX} "
-            f"(Windows SAPI range). Got: {req.rate}"
-        )
-
-    if not (VOLUME_MIN <= req.volume <= VOLUME_MAX):
-        raise ValueError(
-            f"SpeechRequest.volume must be between {VOLUME_MIN} and {VOLUME_MAX}. "
-            f"Got: {req.volume}"
-        )
-
-    if req.output_path is not None:
-        _validate_output_path(req.output_path)
-
-
-def _validate_output_path(path: Path) -> None:
-    """
-    Ensure the output path is inside var/ and not inside src/.
-
-    Raises ValueError on violation.
-    """
-    resolved = path.resolve()
-    path_str = str(resolved).replace("\\", "/").lower()
-
-    # Must not be inside src/
-    if "/src/" in path_str or path_str.endswith("/src"):
-        raise ValueError(
-            f"Audio output path must not be inside src/. Got: {resolved}"
-        )
-
-    # Must be inside an allowed root (var/)
-    parts = resolved.parts
-    allowed = any(
-        any(p.lower() == root for p in parts)
-        for root in _ALLOWED_OUTPUT_ROOTS
-    )
-    if not allowed:
-        raise ValueError(
-            f"Audio output path must be inside var/. Got: {resolved}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# SpeechArtifact
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
+@dataclass
 class SpeechArtifact:
-    """
-    Metadata about an audio file produced by a TTS provider.
-
-    The artifact does not contain the audio bytes — it points to the file path.
-    """
-
     path: Path
-    """Absolute path to the WAV file."""
-
     format: str
-    """Audio format, e.g. 'wav'."""
-
+    sample_rate: int
+    channels: int
     provider: str
-    """Provider ID that produced this artifact, e.g. 'windows-system'."""
-
-    voice_name: Optional[str]
-    """The actual voice name used by the provider, or None if unknown."""
-
+    pipeline: str
+    character_profile_id: str
+    generated_at: str
     size_bytes: int
-    """File size in bytes at the time of creation."""
-
-    created_at: datetime
-    """UTC timestamp when the file was written."""
-
-    metadata: dict = field(default_factory=dict)
-    """Provider-supplied pass-through metadata."""
+    checksum: str
+    provenance: str
+    warnings: list[str]
 
 
-# ---------------------------------------------------------------------------
-# SpeechResult
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SpeechResult:
-    """
-    The outcome of a VoiceService.speak() call.
-
-    Contains the original request, the produced artifact, playback status,
-    and any non-fatal warnings.
-    """
-
+@dataclass
+class VoicePipelineResult:
     request: SpeechRequest
-    """The original request that produced this result."""
-
-    artifact: SpeechArtifact
-    """The audio artifact produced by the TTS provider."""
-
+    resolved_profile: ResolvedVoiceProfile
+    intermediate_artifacts: list[SpeechArtifact]
+    final_artifact: SpeechArtifact | None
     played: bool
-    """True if the audio was played to the user."""
+    warnings: list[str]
+    pipeline_trace: list[str]
 
-    duration_ms: Optional[int]
-    """Approximate audio duration in milliseconds, or None if unknown."""
 
-    warnings: list[str] = field(default_factory=list)
-    """Non-fatal warnings, e.g. voice not found and fallback was used."""
+class TtsProvider(Protocol):
+    @property
+    def provider_id(self) -> str: ...
+
+    def synthesize(self, text: str, hint: VoiceHint | None, output_path: Path) -> SpeechArtifact:
+        """Synthesize text to audio and return the artifact."""
+        ...
+
+
+class VoiceConversionProvider(Protocol):
+    @property
+    def provider_id(self) -> str: ...
+
+    def inspect_model(self, metadata_only: bool = True) -> dict:
+        """Inspect the model without loading it into memory (unless metadata_only=False and trusted)."""
+        ...
+
+    def convert(self, source_audio: Path, target_profile: ResolvedVoiceProfile, output_path: Path) -> SpeechArtifact:
+        """Convert source audio to target voice."""
+        ...
+
+    def health_check(self) -> bool: ...
+
+    def capabilities(self) -> dict: ...
+
+
+class AudioPlayer(Protocol):
+    def play(self, audio_path: Path) -> bool:
+        """Play the audio file synchronously."""
+        ...
+
+
+class VoiceHintAnalyzer(Protocol):
+    def analyze(self, reference_audio: Path) -> VoiceHint:
+        """Analyze reference audio to generate a structured VoiceHint."""
+        ...

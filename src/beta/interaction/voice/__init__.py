@@ -14,25 +14,19 @@ Import VoiceService directly:
 from beta.interaction.voice.contracts import (
     SpeechArtifact,
     SpeechRequest,
-    SpeechResult,
+    VoicePipelineResult,
 )
 from beta.interaction.voice.errors import (
-    AudioOutputError,
-    PlaybackError,
-    SpeechRequestValidationError,
-    TtsProviderError,
-    VoiceError,
-    VoiceProfileNotFoundError,
+    ProviderNotReadyError,
+    VoiceEngineError,
+    ProfileResolutionError,
 )
 
 __all__ = [
     "SpeechRequest",
     "SpeechArtifact",
-    "SpeechResult",
-    "VoiceError",
-    "TtsProviderError",
-    "PlaybackError",
-    "AudioOutputError",
-    "SpeechRequestValidationError",
-    "VoiceProfileNotFoundError",
+    "VoicePipelineResult",
+    "VoiceEngineError",
+    "ProviderNotReadyError",
+    "ProfileResolutionError",
 ]
