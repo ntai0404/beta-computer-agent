@@ -34,6 +34,17 @@ No source has been verified yet. No assets have been imported.
 5. Verify license terms for personal AI assistant use.
 6. Update this file with findings.
 
+**Public upstream evidence checked:**
+- Canonical repository checked: `https://github.com/KurtVelasco/Desktop_Gremlin`
+- Branch checked: `tracen` at `feed8f6d87d8745d58c84e2a83cfa244314bdf21`
+- Actual release tag checked: `v4.0`, release name `TracenAcademy_v4.0`
+- Requested tag URL `/releases/tag/TracenAcademy_v4.0` returned 404 after redirect.
+- README lists `Matikanetannhauser` v2.7.2 with package `Mambo_v2.8.zip`.
+- Source mapping found for sprite actions/emotes and `Sounds/<character>/<file>.wav`.
+
+This evidence does not verify the local `mambo` profile and does not provide a
+usable local voice reference.
+
 ---
 
 ### 2. UmaViewer or Equivalent Uma Musume Asset Reader

@@ -38,11 +38,17 @@ The canonical identity must be read from the package metadata directly.
 | Field | Value |
 |---|---|
 | Repository / product | Desktop_Gremlin / Tracen Academy |
-| Official URL | `https://github.com/KurtVelasco/Desktop_Gremlin` (redirects to `Kritzkingvoid/Desktop_Gremlin`) |
+| Canonical repository URL checked | `https://github.com/KurtVelasco/Desktop_Gremlin` |
+| Redirect/legacy owner observed | GitHub API responses may reference `Kritzkingvoid/Desktop_Gremlin` |
 | Branch checked | `tracen` |
 | Branch ref checked | `feed8f6d87d8745d58c84e2a83cfa244314bdf21` |
+| Branch check command | `git ls-remote https://github.com/KurtVelasco/Desktop_Gremlin.git refs/heads/tracen` |
+| Release requested by user | `https://github.com/KurtVelasco/Desktop_Gremlin/releases/tag/TracenAcademy_v4.0` |
+| Requested release URL result | HTTP 301 to legacy owner, then 404 |
+| Release metadata checked | GitHub release tag `v4.0`, release name `TracenAcademy_v4.0` |
+| Release asset metadata | `TracenAcademy_v4.0.zip`, size `164227022`, digest `sha256:0fa410c9bc983e39efb6cb905c7cefa65bf5000a4aa677b14ee7b5baa711be0d` |
 | Download method | User-supplied local extracted package only |
-| Version / tag | Releases list Tracen Academy packages; no asset downloaded by Beta |
+| Version / tag | `v4.0`; no release asset downloaded by Beta |
 
 ## Upstream Reconnaissance
 
@@ -51,13 +57,22 @@ Read-only upstream checks found:
 - README lists Tracen Academy releases and says the sheets come from UmaViewer.
 - README lists an outdated `Matikanetannhauser` entry with package name
   `Mambo_v2.8.zip`.
+- Shallow clone of branch `tracen` found source folders `SpriteSheet/Gremlins/Cafe`,
+  `Sounds/Cafe`, `Sounds/Doto`, and `Sounds/Opera`.
+- Source sound mapping exists: `MediaManager.PlaySound(fileName, startChar)` resolves
+  `Sounds/<startChar>/<fileName>`, and code calls examples such as `intro.wav`,
+  `sleep.wav`, `outro.wav`, and `grab.wav`.
+- Source emote/action mapping exists: `SpriteManager` maps `emote1`-`emote4`,
+  `intro`, `idle`, `hover`, `grab`, `sleep`, `outro`, walk/run directions, and
+  related actions to PNG sprite names.
 - GitHub releases on branch `tracen` include package metadata such as release
   names, asset names, sizes, and SHA-256 digests.
 - No release asset was downloaded by Beta during reconnaissance.
 
 This is provenance evidence only. It is not enough to mark the local `mambo`
 profile as verified. Verification still requires a user-supplied local package
-and metadata inspection.
+and metadata inspection. Source WAV files in an upstream clone are not counted
+as verified local voice references for Beta.
 
 ---
 

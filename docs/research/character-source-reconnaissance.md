@@ -19,6 +19,33 @@ This document summarizes the reconnaissance of external character sources requir
 
 ## Detailed Source Breakdown
 
+## Current Verification Update
+
+Desktop_Gremlin / Tracen Academy was rechecked with command and source evidence:
+
+- Canonical repository checked: `https://github.com/KurtVelasco/Desktop_Gremlin`.
+- Branch `tracen` checked by `git ls-remote`; commit:
+  `feed8f6d87d8745d58c84e2a83cfa244314bdf21`.
+- Requested release URL `/releases/tag/TracenAcademy_v4.0` returned 404 after
+  redirect. Actual Git tag checked: `v4.0`; release name:
+  `TracenAcademy_v4.0`; asset: `TracenAcademy_v4.0.zip`.
+- README lists Tracen Academy 4.0, Matikanetannhauser v2.7.2 as
+  `Mambo_v2.8.zip`, and says Umamusume sheets come from UmaViewer.
+- Shallow source inspection found `source_mapping_found`:
+  `MediaManager.PlaySound(fileName, startChar)` resolves
+  `Sounds/<startChar>/<fileName>`.
+- Source tree contains WAV files under `Sounds/Cafe`, `Sounds/Doto`, and
+  `Sounds/Opera`; this is upstream source evidence, not a verified local Beta
+  voice reference.
+- `SpriteManager` maps actions and emotes (`emote1`-`emote4`) to PNG sprite
+  resources.
+- Limited local search in Downloads, Desktop, Documents, project config, and
+  `var/assets` found no Tracen Academy ZIP/folder.
+
+Alias `mambo` therefore has a candidate inference:
+Matikanetannhauser / Machikane Tannhauser. It remains unresolved until a
+user-supplied local package or game/extractor metadata verifies identity.
+
 ### 1. Desktop_Gremlin / Tracen Academy
 - **Purpose:** A desktop pet/mascot application (often used for Umamusume, Blue Archive, Arknights characters).
 - **Format:** C# WPF for Windows, or Python/Qt6 for Linux.
