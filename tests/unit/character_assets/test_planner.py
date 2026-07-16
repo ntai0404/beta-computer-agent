@@ -50,6 +50,8 @@ def test_import_planner_end_to_end(tmp_path: Path):
     assert (output_dir / "model-inventory.json").exists()
     assert (output_dir / "import-plan.json").exists()
     assert (output_dir / "profile-update-proposal.json").exists()
+    assert (output_dir / "inspection-details.json").exists()
+    assert (output_dir / "voice-reference-candidates.json").exists()
     
     # Check identity resolution
     identity_data = json.loads((output_dir / "identity-evidence.json").read_text())
@@ -59,6 +61,7 @@ def test_import_planner_end_to_end(tmp_path: Path):
     # Check pipeline recommendation
     summary_data = json.loads((output_dir / "inspection-summary.json").read_text(encoding="utf-8"))
     assert summary_data["voice_pipeline_recommendation"]["recommendation"] == "Base TTS -> RVC"
+    assert summary_data["voice_reference_status"] == "none_found"
     
     # Check import plan
     import_plan = json.loads((output_dir / "import-plan.json").read_text(encoding="utf-8"))
@@ -75,3 +78,55 @@ def test_import_planner_end_to_end(tmp_path: Path):
     profile_update = json.loads((output_dir / "profile-update-proposal.json").read_text())
     assert profile_update["canonical_character_id"] == "matikanetannhauser"
     assert profile_update["canonical_identity_status"] == "verified"
+
+
+def test_voice_reference_requires_real_evidence(tmp_path: Path):
+    artifacts_dir = tmp_path / "artifacts"
+    source = tmp_path / "voice"
+    source.mkdir()
+    (source / "mambo.wav").write_text("fake wav")
+
+    planner = ImportPlanner("mambo", "Mambo", artifacts_dir)
+    planner.inspect_sources(voice_dataset_path=source)
+    planner.generate_reports()
+
+    candidates = json.loads(
+        (artifacts_dir / "character-inspection" / "mambo" / "voice-reference-candidates.json")
+        .read_text(encoding="utf-8")
+    )
+
+    assert candidates["status"] == "none_found"
+    assert candidates["usable_count"] == 0
+    assert candidates["candidates"][0]["usable"] is False
+    assert "filename alone is not sufficient evidence" in candidates["candidates"][0]["warnings"][0]
+
+
+def test_voice_reference_uses_sound_mapping_and_transcript(tmp_path: Path):
+    artifacts_dir = tmp_path / "artifacts"
+    source = tmp_path / "voice"
+    source.mkdir()
+    (source / "clip1.wav").write_text("fake wav")
+    (source / "manifest.json").write_text(
+        json.dumps(
+            {
+                "character_id": "matikanetannhauser",
+                "voice": {"file": "clip1.wav"},
+                "transcript": "synthetic line",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    planner = ImportPlanner("mambo", "Mambo", artifacts_dir)
+    planner.inspect_sources(voice_dataset_path=source)
+    planner.generate_reports()
+
+    candidates = json.loads(
+        (artifacts_dir / "character-inspection" / "mambo" / "voice-reference-candidates.json")
+        .read_text(encoding="utf-8")
+    )
+
+    assert candidates["status"] == "usable_found"
+    assert candidates["usable_count"] == 1
+    assert candidates["candidates"][0]["usable"] is True
+    assert "referenced_by_sound_mapping" in candidates["candidates"][0]["evidence"]

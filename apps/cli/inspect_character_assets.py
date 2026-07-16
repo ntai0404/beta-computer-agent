@@ -7,6 +7,7 @@ CLI for read-only local character asset inspection.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -97,6 +98,23 @@ def main() -> int:
         
         print("\nInspection complete.")
         print(f"Reports written to: {planner.output_dir}")
+        summary_path = planner.output_dir / "inspection-summary.json"
+        voice_ref_path = planner.output_dir / "voice-reference-candidates.json"
+        if summary_path.exists():
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            counts = summary.get("asset_counts", {})
+            print("Status:")
+            print(f"  total assets        : {summary.get('total_assets_found', 0)}")
+            print(f"  avatars             : {counts.get('avatars', 0)}")
+            print(f"  voice candidates    : {counts.get('voices', 0)}")
+            print(f"  transcripts         : {counts.get('transcripts', 0)}")
+            print(f"  models              : {counts.get('models', 0)}")
+            print(f"  identity            : {summary.get('identity_status')}")
+            print(f"  voice references    : {summary.get('voice_reference_status')}")
+        if voice_ref_path.exists():
+            voice_refs = json.loads(voice_ref_path.read_text(encoding="utf-8"))
+            if voice_refs.get("status") == "none_found":
+                print("  usable voice sample : none_found")
         
         return 0
         

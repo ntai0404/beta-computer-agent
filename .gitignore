@@ -47,10 +47,13 @@ var/artifacts/audio/**
 var/artifacts/voice-analysis/**
 !var/artifacts/voice-analysis/.gitkeep
 
+# Character inspection/import reports
+var/artifacts/character-inspection/
+var/artifacts/character-import/
+
 # Reference audio/video — copyrighted external content
 # (user-supplied, must not be committed)
 profiles/characters/*/references/
 
 # Logs
 *.log
-

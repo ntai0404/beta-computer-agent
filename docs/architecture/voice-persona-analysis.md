@@ -163,3 +163,26 @@ Voice Hint can be applied:
 Each update to a Voice Hint increments its `version` field.
 Previous versions should be archived in `var/assets/characters/<profile>/metadata/`.
 The most recent version in `profiles/characters/<profile>/voice-hint.json` is authoritative.
+
+---
+
+## Google Cloud Multimodal Health Boundary
+
+Google Cloud multimodal support is an infrastructure provider, not a VoiceService
+dependency. Health checks use the local `gcloud` CLI and Application Default
+Credentials (ADC):
+
+| Check | Source | Secret Handling |
+|---|---|---|
+| gcloud CLI | `gcloud --version` | No secret |
+| active account | `gcloud auth list --filter=status:ACTIVE` | Account only, no token |
+| ADC | token command return code only | stdout suppressed; token is not logged |
+| current project | `gcloud config get-value project` | Project ID only |
+| location | environment/config | No secret |
+| model | environment/config | No secret |
+| audio capability | provider capability declaration | No media upload |
+
+Health checks do not upload audio, video, or datasets. If no account or ADC is
+configured, Beta reports `not_configured` and does not run login. If the
+configured model does not declare audio input support, analysis falls back to
+transcript/metadata and records a warning; it does not fake VoiceHint values.

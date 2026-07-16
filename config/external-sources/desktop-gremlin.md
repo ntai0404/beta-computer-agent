@@ -38,9 +38,26 @@ The canonical identity must be read from the package metadata directly.
 | Field | Value |
 |---|---|
 | Repository / product | Desktop_Gremlin / Tracen Academy |
-| Official URL | *(to be supplied by user)* |
-| Download method | *(to be supplied by user)* |
-| Version / tag | *(unknown)* |
+| Official URL | `https://github.com/KurtVelasco/Desktop_Gremlin` (redirects to `Kritzkingvoid/Desktop_Gremlin`) |
+| Branch checked | `tracen` |
+| Branch ref checked | `feed8f6d87d8745d58c84e2a83cfa244314bdf21` |
+| Download method | User-supplied local extracted package only |
+| Version / tag | Releases list Tracen Academy packages; no asset downloaded by Beta |
+
+## Upstream Reconnaissance
+
+Read-only upstream checks found:
+
+- README lists Tracen Academy releases and says the sheets come from UmaViewer.
+- README lists an outdated `Matikanetannhauser` entry with package name
+  `Mambo_v2.8.zip`.
+- GitHub releases on branch `tracen` include package metadata such as release
+  names, asset names, sizes, and SHA-256 digests.
+- No release asset was downloaded by Beta during reconnaissance.
+
+This is provenance evidence only. It is not enough to mark the local `mambo`
+profile as verified. Verification still requires a user-supplied local package
+and metadata inspection.
 
 ---
 

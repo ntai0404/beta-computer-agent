@@ -30,3 +30,38 @@ The pipeline selector bases its decision on the `ReadinessStatus` derived from t
 ## Voice Hints
 
 A `VoiceHint` contains structured emotional or stylistic metadata (like `speaking_rate` and `volume`). It maps these abstract values down to the specific provider capabilities. For example, a `1.5` speaking rate is translated into SAPI5's internal `1` to `10` rate scale by the `WindowsSystemTtsProvider`. In the future, this hint will be generated dynamically by a `VoiceHintAnalyzer` reading from multi-modal inputs.
+
+## Real Voice I/O Contracts
+
+### Voice Hint Analysis
+
+**Input:** A local audio/video reference, optional existing transcript, profile
+metadata, and source provenance. No URL downloads. No cloud upload unless the
+user explicitly approves a cloud provider call.
+
+**Output:** VoiceHint metadata, confidence, warnings, source checksums, and
+quality notes. It is not audio, not a speaker embedding, and not proof of
+canonical identity.
+
+### Base TTS
+
+**Input:** Text plus only the subset of VoiceHint fields supported by the active
+TTS provider.
+
+**Output:** A source WAV file. With `windows-system`, this is the OS voice only.
+It must not be labeled as Mambo voice.
+
+### RVC Conversion
+
+**Input:** Source WAV audio plus a trusted RVC voice conversion model.
+
+**Output:** Converted WAV audio. Current milestone is discovery only:
+RVC models are not loaded, not executed, and not trusted automatically.
+
+### Final Voice Pipeline
+
+**Input:** `SpeechRequest(text, character_profile_id, pipeline_preference, ...)`.
+
+**Output:** `SpeechArtifact` WAV, warnings, and pipeline trace. Current output is
+`Beta default system voice` unless a real character provider/model is approved
+and run. It is not character matched in the current pipeline.

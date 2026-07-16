@@ -24,6 +24,11 @@ This document summarizes the reconnaissance of external character sources requir
 - **Format:** C# WPF for Windows, or Python/Qt6 for Linux.
 - **Character Identity:** Characters are usually identified by folder names or `config.txt` settings in the application directory.
 - **Evidence:** Users report setting sprite scaling and selecting characters via config files. It uses 2D sprites or simple animations.
+- **Current upstream check:** `KurtVelasco/Desktop_Gremlin` branch `tracen`
+  exists at `feed8f6d87d8745d58c84e2a83cfa244314bdf21`. README/release metadata
+  mention Tracen Academy packages, UmaViewer as the sheet source, and an outdated
+  `Matikanetannhauser` package named `Mambo_v2.8.zip`. This is not sufficient to
+  verify the local `mambo` profile without inspecting a user-supplied package.
 
 ### 2. UmaViewer
 - **Purpose:** A tool to view 3D assets from the Uma Musume Pretty Derby game.
