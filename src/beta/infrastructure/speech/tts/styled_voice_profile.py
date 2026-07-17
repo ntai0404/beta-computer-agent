@@ -19,6 +19,10 @@ class StyledVoiceProfile:
     generated_at: str
     label: str
     clone_status: str
+    analyzer_source: str = "local_provenance_only"
+    analyzer_model_version: str = "not_run"
+    analysis_path: str = ""
+    profile_generated_from_reference_audio: bool = False
 
 
 def build_styled_voice_profile(
@@ -30,6 +34,11 @@ def build_styled_voice_profile(
     analyzer_model: str,
     label: str,
     clone_status: str,
+    analyzer_source: str = "local_provenance_only",
+    analyzer_model_version: str = "not_run",
+    analysis_path: str = "",
+    profile_generated_from_reference_audio: bool = False,
+    force_rebuild: bool = False,
 ) -> tuple[StyledVoiceProfile, bool]:
     """Cache local sample provenance; this function does not call a cloud analyzer."""
     hashes = tuple(compute_sha256(path) for path in sample_paths if path.is_file())
@@ -38,7 +47,7 @@ def build_styled_voice_profile(
 
     if profile_path.exists():
         existing = load_styled_voice_profile(profile_path)
-        if existing.source_sample_hashes == hashes:
+        if existing.source_sample_hashes == hashes and not force_rebuild:
             return existing, False
 
     profile = StyledVoiceProfile(
@@ -49,6 +58,10 @@ def build_styled_voice_profile(
         generated_at=dt.datetime.now(dt.timezone.utc).isoformat(),
         label=label,
         clone_status=clone_status,
+        analyzer_source=analyzer_source,
+        analyzer_model_version=analyzer_model_version,
+        analysis_path=analysis_path,
+        profile_generated_from_reference_audio=profile_generated_from_reference_audio,
     )
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     profile_path.write_text(_serialize(profile), encoding="utf-8")
@@ -99,6 +112,12 @@ def load_styled_voice_profile(profile_path: Path) -> StyledVoiceProfile:
         generated_at=values["generated_at"],
         label=values["label"],
         clone_status=values["clone_status"],
+        analyzer_source=values.get("analyzer_source", "local_provenance_only"),
+        analyzer_model_version=values.get("analyzer_model_version", "not_run"),
+        analysis_path=values.get("analysis_path", ""),
+        profile_generated_from_reference_audio=(
+            values.get("profile_generated_from_reference_audio", "false").lower() == "true"
+        ),
     )
 
 
@@ -115,6 +134,11 @@ def _serialize(profile: StyledVoiceProfile) -> str:
             f"generated_at: {_quote(profile.generated_at)}",
             f"label: {_quote(profile.label)}",
             f"clone_status: {_quote(profile.clone_status)}",
+            f"analyzer_source: {_quote(profile.analyzer_source)}",
+            f"analyzer_model_version: {_quote(profile.analyzer_model_version)}",
+            f"analysis_path: {_quote(profile.analysis_path)}",
+            "profile_generated_from_reference_audio: "
+            f"{'true' if profile.profile_generated_from_reference_audio else 'false'}",
             "",
         )
     )

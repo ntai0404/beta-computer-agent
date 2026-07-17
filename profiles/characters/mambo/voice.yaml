@@ -1,9 +1,13 @@
 base_voice: "Kore"
-style_prompt: "Deliver Vietnamese with a bright, youthful, lively, playful energy. Keep diction clear and friendly."
-analyzer_model: "local-provenance-hash-only"
+style_prompt: "A very fast, high-pitched, and breathy delivery, characterized by irregular, fragmented rhythms and sudden bursts of intense energy, conveying strong emotional expressiveness through non-verbal gasps and whimpers."
+analyzer_model: "gemini-2.5-flash"
 source_sample_hashes:
   - "4985863d7486e3841c574ee89256e05e63d4bb26307af1a96bb25aebe1eeaa8e"
   - "3af727b35894cd2f0036446416486e61d9806565f780ea5aa149432a35804a62"
-generated_at: "2026-07-17T05:43:58.696122+00:00"
+generated_at: "2026-07-17T06:36:16.030072+00:00"
 label: "mambo-inspired-gemini-tts"
 clone_status: "not_cloned"
+analyzer_source: "google_audio_analysis"
+analyzer_model_version: "gemini-2.5-flash"
+analysis_path: "voice-analysis.json"
+profile_generated_from_reference_audio: true

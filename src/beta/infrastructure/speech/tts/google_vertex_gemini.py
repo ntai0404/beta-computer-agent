@@ -31,11 +31,18 @@ class GeminiTtsResponseMetadata:
     sample_rate_hz: int
     prompt_characters: int
     prompt_build_ms: float
-    auth_ms: float
+    credential_init_ms: float
+    token_refresh_ms: float
     request_start_ms: float
+    request_send_to_headers_ms: float
+    response_body_ms: float
     response_complete_ms: float
     wav_write_ms: float
     api_call_count: int
+
+    @property
+    def auth_ms(self) -> float:
+        return self.credential_init_ms + self.token_refresh_ms
 
 
 @dataclass(frozen=True)
@@ -44,9 +51,107 @@ class _HttpResponse:
     payload: dict[str, Any]
     error_status: str | None = None
     error_message: str | None = None
-    auth_ms: float = 0.0
+    credential_init_ms: float = 0.0
+    token_refresh_ms: float = 0.0
     request_start_ms: float = 0.0
+    request_send_to_headers_ms: float = 0.0
+    response_body_ms: float = 0.0
     response_complete_ms: float = 0.0
+
+
+@dataclass(frozen=True)
+class GoogleVertexAuthTiming:
+    credential_init_ms: float
+    token_refresh_ms: float
+
+
+class _VertexAdcClient:
+    """Caches ADC credentials for a long-lived provider without logging tokens."""
+
+    def __init__(self) -> None:
+        self._credentials: Any | None = None
+
+    def warm(self) -> GoogleVertexAuthTiming:
+        credential_init_ms = 0.0
+        token_refresh_ms = 0.0
+        if self._credentials is None:
+            started = time.monotonic()
+            try:
+                import google.auth
+
+                self._credentials, _ = google.auth.default(
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+            except Exception as exc:  # pragma: no cover - depends on local ADC
+                raise GoogleVertexGeminiTtsError(
+                    f"ADC unavailable: {type(exc).__name__}"
+                ) from None
+            credential_init_ms = (time.monotonic() - started) * 1_000
+        if not self._credentials.valid:
+            started = time.monotonic()
+            try:
+                import google.auth.transport.requests
+
+                self._credentials.refresh(google.auth.transport.requests.Request())
+            except Exception as exc:  # pragma: no cover - depends on local ADC
+                raise GoogleVertexGeminiTtsError(
+                    f"ADC token refresh failed: {type(exc).__name__}"
+                ) from None
+            token_refresh_ms = (time.monotonic() - started) * 1_000
+        return GoogleVertexAuthTiming(credential_init_ms, token_refresh_ms)
+
+    def post_json(
+        self,
+        url: str,
+        project: str,
+        payload: dict[str, Any],
+        synthesis_started: float,
+    ) -> _HttpResponse:
+        auth_timing = self.warm()
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+        )
+        request.add_header("Authorization", f"Bearer {self._credentials.token}")
+        request.add_header("Content-Type", "application/json")
+        request.add_header("x-goog-user-project", project)
+        request_started = time.monotonic()
+        request_start_ms = (request_started - synthesis_started) * 1_000
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                headers_received = time.monotonic()
+                response_payload = _read_json(response.read())
+                response_finished = time.monotonic()
+                return _HttpResponse(
+                    response.status,
+                    response_payload,
+                    credential_init_ms=auth_timing.credential_init_ms,
+                    token_refresh_ms=auth_timing.token_refresh_ms,
+                    request_start_ms=request_start_ms,
+                    request_send_to_headers_ms=(headers_received - request_started) * 1_000,
+                    response_body_ms=(response_finished - headers_received) * 1_000,
+                    response_complete_ms=(response_finished - synthesis_started) * 1_000,
+                )
+        except urllib.error.HTTPError as exc:
+            body = _read_json(exc.read())
+            error = body.get("error", {})
+            return _HttpResponse(
+                exc.code,
+                body,
+                str(error.get("status") or "HTTP_ERROR"),
+                str(error.get("message") or "")[:300],
+                auth_timing.credential_init_ms,
+                auth_timing.token_refresh_ms,
+                request_start_ms,
+                (time.monotonic() - request_started) * 1_000,
+                0.0,
+                (time.monotonic() - synthesis_started) * 1_000,
+            )
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise GoogleVertexGeminiTtsError(
+                f"Vertex request unavailable: {type(exc).__name__}"
+            ) from None
 
 
 class GoogleVertexGeminiTtsProvider(TtsProvider):
@@ -60,12 +165,14 @@ class GoogleVertexGeminiTtsProvider(TtsProvider):
         model: str,
         style: str,
         voice_name: str = "Kore",
+        adc_client: _VertexAdcClient | None = None,
     ) -> None:
         self.project = project
         self.location = location
         self.model = model
         self.style = style.strip()
         self.voice_name = voice_name
+        self._adc_client = adc_client or _VertexAdcClient()
         self.last_response: GeminiTtsResponseMetadata | None = None
 
     @property
@@ -83,7 +190,7 @@ class GoogleVertexGeminiTtsProvider(TtsProvider):
         request_body = self._request_body(request)
         prompt_build_ms = (time.monotonic() - prompt_started) * 1_000
         prompt_text = request_body["contents"]["parts"]["text"]
-        response = _authenticated_json_post(
+        response = self._adc_client.post_json(
             self._endpoint(),
             self.project,
             request_body,
@@ -108,8 +215,11 @@ class GoogleVertexGeminiTtsProvider(TtsProvider):
             sample_rate_hz=sample_rate_hz,
             prompt_characters=len(prompt_text),
             prompt_build_ms=prompt_build_ms,
-            auth_ms=response.auth_ms,
+            credential_init_ms=response.credential_init_ms,
+            token_refresh_ms=response.token_refresh_ms,
             request_start_ms=response.request_start_ms,
+            request_send_to_headers_ms=response.request_send_to_headers_ms,
+            response_body_ms=response.response_body_ms,
             response_complete_ms=response.response_complete_ms,
             wav_write_ms=wav_write_ms,
             api_call_count=1,
@@ -147,6 +257,10 @@ class GoogleVertexGeminiTtsProvider(TtsProvider):
         if not self.project or not self.location or not self.model:
             raise GoogleVertexGeminiTtsError("Project, location, and model are required.")
 
+    def warm_auth(self) -> GoogleVertexAuthTiming:
+        """Initialize and refresh ADC before latency-sensitive synthesis runs."""
+        return self._adc_client.warm()
+
     def _endpoint(self) -> str:
         host = (
             "aiplatform.googleapis.com"
@@ -173,68 +287,6 @@ class GoogleVertexGeminiTtsProvider(TtsProvider):
                 },
             },
         }
-
-
-def _authenticated_json_post(
-    url: str,
-    project: str,
-    payload: dict[str, Any],
-    synthesis_started: float,
-) -> _HttpResponse:
-    """POST with ADC while never exposing an access token in exceptions or output."""
-    auth_started = time.monotonic()
-    try:
-        import google.auth
-        import google.auth.transport.requests
-
-        credentials, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        credentials.refresh(google.auth.transport.requests.Request())
-    except Exception as exc:  # pragma: no cover - depends on local ADC configuration
-        raise GoogleVertexGeminiTtsError(
-            f"ADC unavailable: {type(exc).__name__}"
-        ) from None
-
-    auth_ms = (time.monotonic() - auth_started) * 1_000
-
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
-    )
-    request.add_header("Authorization", f"Bearer {credentials.token}")
-    request.add_header("Content-Type", "application/json")
-    request.add_header("x-goog-user-project", project)
-    request_started = time.monotonic()
-    request_start_ms = (request_started - synthesis_started) * 1_000
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            response_payload = _read_json(response.read())
-            response_complete_ms = (time.monotonic() - synthesis_started) * 1_000
-            return _HttpResponse(
-                response.status,
-                response_payload,
-                auth_ms=auth_ms,
-                request_start_ms=request_start_ms,
-                response_complete_ms=response_complete_ms,
-            )
-    except urllib.error.HTTPError as exc:
-        body = _read_json(exc.read())
-        error = body.get("error", {})
-        return _HttpResponse(
-            exc.code,
-            body,
-            str(error.get("status") or "HTTP_ERROR"),
-            str(error.get("message") or "")[:300],
-            auth_ms,
-            request_start_ms,
-            (time.monotonic() - synthesis_started) * 1_000,
-        )
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise GoogleVertexGeminiTtsError(
-            f"Vertex request unavailable: {type(exc).__name__}"
-        ) from None
 
 
 def _read_json(raw: bytes) -> dict[str, Any]:

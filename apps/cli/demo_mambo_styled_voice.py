@@ -33,8 +33,11 @@ _MODEL = "gemini-2.5-flash-tts"
 class DemoRun:
     profile_load_ms: float
     prompt_build_ms: float
-    auth_ms: float
+    credential_init_ms: float
+    token_refresh_ms: float
     request_start_ms: float
+    request_send_to_headers_ms: float
+    response_body_ms: float
     response_complete_ms: float
     wav_write_ms: float
     playback_start_ms: float | None
@@ -68,7 +71,11 @@ def main() -> int:
         if args.benchmark_runs:
             _run_benchmark(args.text, args.emotion, args.benchmark_runs, not args.no_play)
         else:
-            _print_run("demo", _run_once(args.text, args.emotion, not args.no_play, "demo"))
+            provider, profile_load_ms = _prepare_provider(args.emotion)
+            _print_run(
+                "demo",
+                _run_once(args.text, not args.no_play, "demo", provider, profile_load_ms),
+            )
     except (FileNotFoundError, GoogleVertexGeminiTtsError, ValueError) as exc:
         print(f"Demo failed: {exc}", file=sys.stderr)
         return 1
@@ -76,10 +83,17 @@ def main() -> int:
 
 
 def _run_benchmark(text: str, emotion: str, runs: int, play_audio: bool) -> None:
-    warmup = _run_once(text, emotion, play_audio, "warmup")
+    provider, profile_load_ms = _prepare_provider(emotion)
+    credential_warmup = provider.warm_auth()
+    print("Benchmark setup")
+    print(f"credential_init_ms              : {credential_warmup.credential_init_ms:.2f}")
+    print(f"token_refresh_ms                : {credential_warmup.token_refresh_ms:.2f}")
+    print("provider_reuse                  : true")
+    print("http_session_reuse              : not_available_stdlib_urllib")
+    warmup = _run_once(text, play_audio, "warmup", provider, profile_load_ms)
     _print_run("warmup_not_counted", warmup)
     measurements = [
-        _run_once(text, emotion, play_audio, f"run-{index}")
+        _run_once(text, play_audio, f"run-{index}", provider, 0.0)
         for index in range(1, runs + 1)
     ]
     for index, result in enumerate(measurements, start=1):
@@ -103,8 +117,7 @@ def _run_benchmark(text: str, emotion: str, runs: int, play_audio: bool) -> None
     print("cost_note                     : estimate from supplied token-rate formula, not billing export")
 
 
-def _run_once(text: str, emotion: str, play_audio: bool, run_name: str) -> DemoRun:
-    started = time.monotonic()
+def _prepare_provider(emotion: str) -> tuple[GoogleVertexGeminiTtsProvider, float]:
     profile_started = time.monotonic()
     profile = load_styled_voice_profile(
         _PROJECT_ROOT / "profiles" / "characters" / "mambo" / "voice.yaml"
@@ -112,18 +125,32 @@ def _run_once(text: str, emotion: str, play_audio: bool, run_name: str) -> DemoR
     profile_load_ms = (time.monotonic() - profile_started) * 1_000
     if profile.label != "mambo-inspired-gemini-tts" or profile.clone_status != "not_cloned":
         raise ValueError("Mambo profile must be labeled mambo-inspired-gemini-tts and not_cloned.")
-
     style = f"{profile.style_prompt} Emotion: {emotion}."
+    return (
+        GoogleVertexGeminiTtsProvider(
+            project=_PROJECT_ID,
+            location=_LOCATION,
+            model=_MODEL,
+            style=style,
+            voice_name=profile.base_voice,
+        ),
+        profile_load_ms,
+    )
+
+
+def _run_once(
+    text: str,
+    play_audio: bool,
+    run_name: str,
+    provider: GoogleVertexGeminiTtsProvider | None = None,
+    profile_load_ms: float = 0.0,
+) -> DemoRun:
+    started = time.monotonic()
+    if provider is None:
+        provider, profile_load_ms = _prepare_provider("neutral")
     output_dir = _PROJECT_ROOT / "var" / "output" / "voice-demo"
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output_path = output_dir / f"mambo-styled-{run_name}-{timestamp}.wav"
-    provider = GoogleVertexGeminiTtsProvider(
-        project=_PROJECT_ID,
-        location=_LOCATION,
-        model=_MODEL,
-        style=style,
-        voice_name=profile.base_voice,
-    )
     artifact = provider.synthesize(
         SpeechRequest(
             text=text,
@@ -160,8 +187,11 @@ def _run_once(text: str, emotion: str, play_audio: bool, run_name: str) -> DemoR
     return DemoRun(
         profile_load_ms=profile_load_ms,
         prompt_build_ms=metadata.prompt_build_ms,
-        auth_ms=metadata.auth_ms,
+        credential_init_ms=metadata.credential_init_ms,
+        token_refresh_ms=metadata.token_refresh_ms,
         request_start_ms=metadata.request_start_ms,
+        request_send_to_headers_ms=metadata.request_send_to_headers_ms,
+        response_body_ms=metadata.response_body_ms,
         response_complete_ms=metadata.response_complete_ms,
         wav_write_ms=metadata.wav_write_ms,
         playback_start_ms=playback_start_ms,
@@ -184,9 +214,12 @@ def _print_run(name: str, result: DemoRun) -> None:
     print(f"Run: {name}")
     print(f"profile_load_ms                 : {result.profile_load_ms:.2f}")
     print(f"prompt_build_ms                 : {result.prompt_build_ms:.2f}")
-    print(f"auth_ms                         : {result.auth_ms:.2f}")
+    print(f"credential_init_ms              : {result.credential_init_ms:.2f}")
+    print(f"token_refresh_ms                : {result.token_refresh_ms:.2f}")
     print(f"request_start_ms                : {result.request_start_ms:.2f}")
     print("first_audio_ms                  : not_available_unary")
+    print(f"request_send_to_headers_ms      : {result.request_send_to_headers_ms:.2f}")
+    print(f"response_body_ms                : {result.response_body_ms:.2f}")
     print(f"response_complete_ms            : {result.response_complete_ms:.2f}")
     print(f"wav_write_ms                    : {result.wav_write_ms:.2f}")
     print(

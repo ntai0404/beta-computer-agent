@@ -8,12 +8,23 @@ import beta.infrastructure.speech.tts.google_vertex_gemini as gemini_tts
 from beta.interaction.voice.contracts import SpeechRequest
 
 
-def test_gemini_tts_writes_pcm_response_as_valid_wav(monkeypatch, tmp_path: Path):
+class _FakeAdcClient:
+    def __init__(self, response):
+        self.response = response
+        self.warm_calls = 0
+
+    def warm(self):
+        self.warm_calls += 1
+        return gemini_tts.GoogleVertexAuthTiming(3.0, 4.0)
+
+    def post_json(self, *args, **kwargs):
+        return self.response
+
+
+def test_gemini_tts_writes_pcm_response_as_valid_wav(tmp_path: Path):
     pcm = b"\x00\x00\x01\x00\xff\xff\x00\x00"
-    monkeypatch.setattr(
-        gemini_tts,
-        "_authenticated_json_post",
-        lambda *args, **kwargs: gemini_tts._HttpResponse(
+    client = _FakeAdcClient(
+        gemini_tts._HttpResponse(
             200,
             {
                 "candidates": [
@@ -31,7 +42,7 @@ def test_gemini_tts_writes_pcm_response_as_valid_wav(monkeypatch, tmp_path: Path
                     }
                 ]
             },
-        ),
+        )
     )
     output = tmp_path / "demo.wav"
     provider = gemini_tts.GoogleVertexGeminiTtsProvider(
@@ -39,6 +50,7 @@ def test_gemini_tts_writes_pcm_response_as_valid_wav(monkeypatch, tmp_path: Path
         location="us-east4",
         model="gemini-2.5-flash-tts",
         style="Energetic and playful.",
+        adc_client=client,
     )
 
     artifact = provider.synthesize(
@@ -60,22 +72,21 @@ def test_gemini_tts_writes_pcm_response_as_valid_wav(monkeypatch, tmp_path: Path
         assert wav_file.readframes(wav_file.getnframes()) == pcm
 
 
-def test_gemini_tts_returns_sanitized_http_error(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(
-        gemini_tts,
-        "_authenticated_json_post",
-        lambda *args, **kwargs: gemini_tts._HttpResponse(
+def test_gemini_tts_returns_sanitized_http_error(tmp_path: Path):
+    client = _FakeAdcClient(
+        gemini_tts._HttpResponse(
             403,
             {},
             "PERMISSION_DENIED",
             "Permission denied for this project.",
-        ),
+        )
     )
     provider = gemini_tts.GoogleVertexGeminiTtsProvider(
         project="project-a",
         location="us-east4",
         model="gemini-2.5-flash-tts",
         style="Natural.",
+        adc_client=client,
     )
 
     with pytest.raises(gemini_tts.GoogleVertexGeminiTtsError) as error:

@@ -1,0 +1,36 @@
+{
+  "analyzer_source": "google_audio_analysis",
+  "analyzer_model": "gemini-2.5-flash",
+  "analyzer_model_version": "gemini-2.5-flash",
+  "analyzer_endpoint": "https://us-east4-aiplatform.googleapis.com/v1beta1/projects/datn-2251162143-287/locations/us-east4/publishers/google/models/gemini-2.5-flash:generateContent",
+  "source_samples": [
+    {
+      "path": "var\\sandbox\\Desktop_Gremlin_tracen\\Desktop_Gremlin\\Sounds\\Cafe\\mambo.wav",
+      "duration_ms": 464,
+      "sha256": "4985863d7486e3841c574ee89256e05e63d4bb26307af1a96bb25aebe1eeaa8e"
+    },
+    {
+      "path": "var\\sandbox\\Desktop_Gremlin_tracen\\Desktop_Gremlin\\Sounds\\Doto\\mambo.wav",
+      "duration_ms": 1589,
+      "sha256": "3af727b35894cd2f0036446416486e61d9806565f780ea5aa149432a35804a62"
+    }
+  ],
+  "generated_at": "2026-07-17T06:36:16.027076+00:00",
+  "raw_sanitized_analysis": {
+    "pitch": "High to very high, with sudden upward inflections.",
+    "timbre": "Breathy, light, and somewhat strained.",
+    "pace": "Very fast and abrupt, with short, distinct vocalizations.",
+    "rhythm": "Irregular and fragmented, characterized by quick, sudden bursts of sound.",
+    "energy": "High and intense, conveying sudden emotional impact.",
+    "articulation": "Primarily non-verbal vocalizations, with some clear, short vowel sounds.",
+    "expressiveness": "Highly expressive of distress, surprise, or a sharp emotional reaction, characterized by gasps and whimpers.",
+    "pronunciation_accent_notes": "Contains non-verbal vocalizations; no discernible words for pronunciation or accent analysis.",
+    "generated_style_prompt": "A very fast, high-pitched, and breathy delivery, characterized by irregular, fragmented rhythms and sudden bursts of intense energy, conveying strong emotional expressiveness through non-verbal gasps and whimpers.",
+    "confidence": 0.95,
+    "limitations": [
+      "Audio is very short, limiting sustained analysis.",
+      "Contains primarily non-verbal vocalizations, precluding detailed linguistic analysis.",
+      "Emotional context is inferred from acoustic properties rather than explicit speech content."
+    ]
+  }
+}
