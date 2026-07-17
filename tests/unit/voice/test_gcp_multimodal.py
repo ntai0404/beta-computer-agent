@@ -5,6 +5,7 @@ import pytest
 import beta.infrastructure.llm.google_cloud.multimodal as gcp_multimodal
 from beta.infrastructure.llm.google_cloud.multimodal import (
     GcloudCommandResult,
+    GoogleCloudTtsReadiness,
     GoogleCloudMultimodalConfig,
     GoogleCloudMultimodalProvider,
 )
@@ -106,3 +107,73 @@ def test_gcp_provider_refuses_cloud_upload_without_approval(tmp_path: Path):
     )
     with pytest.raises(PermissionError, match="Cloud media upload is not approved"):
         provider.analyze_audio(request)
+
+
+def test_gcp_health_exposes_verified_tts_readiness(monkeypatch):
+    exe = r"C:\Google\Cloud SDK\bin\gcloud.cmd"
+    monkeypatch.setattr(
+        gcp_multimodal,
+        "discover_gcloud_executable",
+        lambda: gcp_multimodal.GcloudDiscovery("installed_on_path", exe, "test"),
+    )
+    monkeypatch.setattr(
+        gcp_multimodal,
+        "_verify_google_tts_readiness",
+        lambda **_: GoogleCloudTtsReadiness(
+            texttospeech_api_enabled="true",
+            aiplatform_api_enabled="true",
+            generativelanguage_api_enabled="true",
+            service_identity_ready="true",
+            iam_ready="true",
+            iam_details="sanitized",
+            quota_ready="true",
+            gemini_tts_available="true",
+            instant_custom_voice_method_exposed="false",
+            instant_custom_voice_allowlisted="false_or_not_exposed",
+            instant_custom_voice_blocker="external_entitlement_not_cli_enablement",
+        ),
+    )
+
+    def runner(command, suppress_stdout=False):
+        if command[:2] == (exe, "--version"):
+            return GcloudCommandResult(tuple(command), 0, "Google Cloud SDK 999.0.0", "")
+        if command[:3] == (exe, "auth", "list"):
+            return GcloudCommandResult(tuple(command), 0, "user@example.com", "")
+        if command[:3] == (exe, "auth", "application-default"):
+            return GcloudCommandResult(tuple(command), 0, "", "")
+        if command[:3] == (exe, "config", "get-value"):
+            return GcloudCommandResult(tuple(command), 0, "project-a", "")
+        raise AssertionError(command)
+
+    provider = GoogleCloudMultimodalProvider(
+        config=GoogleCloudMultimodalConfig(location="us-east4", model="gemini-2.5-flash-tts"),
+        runner=runner,
+        verify_tts_capabilities=True,
+    )
+
+    health = provider.health_status()
+
+    assert health.texttospeech_api_enabled == "true"
+    assert health.iam_ready == "true"
+    assert health.gemini_tts_available == "true"
+    assert health.instant_custom_voice_method_exposed == "false"
+    assert health.instant_custom_voice_allowlisted == "false_or_not_exposed"
+    assert health.instant_custom_voice_blocker == "external_entitlement_not_cli_enablement"
+
+
+def test_instant_custom_voice_reports_not_exposed_for_documented_404s(monkeypatch):
+    monkeypatch.setattr(
+        gcp_multimodal,
+        "_authenticated_json_request",
+        lambda *args, **kwargs: gcp_multimodal.GoogleCloudHttpResult(
+            404,
+            "NOT_FOUND",
+            "Method not found.",
+        ),
+    )
+
+    method, allowlisted, blocker = gcp_multimodal._instant_custom_voice_status("project-a")
+
+    assert method == "false"
+    assert allowlisted == "false_or_not_exposed"
+    assert blocker == "external_entitlement_not_cli_enablement"

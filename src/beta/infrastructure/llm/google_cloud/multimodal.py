@@ -12,9 +12,11 @@ import json
 import re
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 from beta.infrastructure.llm.multimodal.base import (
     AnalysisCapabilities,
@@ -152,6 +154,17 @@ class GoogleCloudMultimodalHealth:
     audio_capability: str
     video_capability: str
     structured_output_capability: str
+    texttospeech_api_enabled: str = "not_checked"
+    aiplatform_api_enabled: str = "not_checked"
+    generativelanguage_api_enabled: str = "not_checked"
+    service_identity_ready: str = "not_checked"
+    iam_ready: str = "not_checked"
+    iam_details: str = "not_checked"
+    quota_ready: str = "not_checked"
+    gemini_tts_available: str = "not_checked"
+    instant_custom_voice_method_exposed: str = "not_checked"
+    instant_custom_voice_allowlisted: str = "not_checked"
+    instant_custom_voice_blocker: str = "not_checked"
     blockers: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -188,14 +201,43 @@ def _default_runner(command: Sequence[str], suppress_stdout: bool = False) -> Gc
     )
 
 
+@dataclass(frozen=True)
+class GoogleCloudHttpResult:
+    status_code: int
+    error_status: str | None = None
+    error_message: str | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class GoogleCloudTtsReadiness:
+    texttospeech_api_enabled: str = "not_checked"
+    aiplatform_api_enabled: str = "not_checked"
+    generativelanguage_api_enabled: str = "not_checked"
+    service_identity_ready: str = "not_checked"
+    iam_ready: str = "not_checked"
+    iam_details: str = "not_checked"
+    quota_ready: str = "not_checked"
+    gemini_tts_available: str = "not_checked"
+    instant_custom_voice_method_exposed: str = "not_checked"
+    instant_custom_voice_allowlisted: str = "not_checked"
+    instant_custom_voice_blocker: str = "not_checked"
+
+    @classmethod
+    def not_checked(cls) -> "GoogleCloudTtsReadiness":
+        return cls()
+
+
 class GoogleCloudMultimodalProvider(MultimodalVoiceAnalyzer):
     def __init__(
         self,
         config: GoogleCloudMultimodalConfig | None = None,
         runner: CommandRunner = _default_runner,
+        verify_tts_capabilities: bool = False,
     ) -> None:
         self.config = config or GoogleCloudMultimodalConfig.from_environment()
         self._runner = runner
+        self._verify_tts_capabilities = verify_tts_capabilities
 
     @property
     def provider_id(self) -> str:
@@ -304,6 +346,17 @@ class GoogleCloudMultimodalProvider(MultimodalVoiceAnalyzer):
                 "audio analysis must not upload media or fake results."
             )
 
+        tts_readiness = GoogleCloudTtsReadiness.not_checked()
+        if self._verify_tts_capabilities:
+            tts_readiness = _verify_google_tts_readiness(
+                runner=self._runner,
+                executable=executable,
+                project=project,
+                location=location,
+            )
+            if tts_readiness.instant_custom_voice_blocker not in ("none", "not_checked"):
+                blockers.append(tts_readiness.instant_custom_voice_blocker)
+
         return GoogleCloudMultimodalHealth(
             gcloud_cli=gcloud_cli,
             resolved_executable=executable,
@@ -327,6 +380,17 @@ class GoogleCloudMultimodalProvider(MultimodalVoiceAnalyzer):
             audio_capability=audio_capability,
             video_capability=video_capability,
             structured_output_capability=structured_output_capability,
+            texttospeech_api_enabled=tts_readiness.texttospeech_api_enabled,
+            aiplatform_api_enabled=tts_readiness.aiplatform_api_enabled,
+            generativelanguage_api_enabled=tts_readiness.generativelanguage_api_enabled,
+            service_identity_ready=tts_readiness.service_identity_ready,
+            iam_ready=tts_readiness.iam_ready,
+            iam_details=tts_readiness.iam_details,
+            quota_ready=tts_readiness.quota_ready,
+            gemini_tts_available=tts_readiness.gemini_tts_available,
+            instant_custom_voice_method_exposed=tts_readiness.instant_custom_voice_method_exposed,
+            instant_custom_voice_allowlisted=tts_readiness.instant_custom_voice_allowlisted,
+            instant_custom_voice_blocker=tts_readiness.instant_custom_voice_blocker,
             blockers=blockers,
             warnings=warnings,
         )
@@ -398,6 +462,328 @@ def _capabilities_for_model(model: str | None) -> AnalysisCapabilities:
             "Do not infer audio support from the model name."
         ),
     )
+
+
+def _verify_google_tts_readiness(
+    *,
+    runner: CommandRunner,
+    executable: str | None,
+    project: str | None,
+    location: str | None,
+) -> GoogleCloudTtsReadiness:
+    """Run non-media TTS checks without logging credentials or error bodies."""
+    if not executable or not project:
+        return GoogleCloudTtsReadiness(
+            instant_custom_voice_blocker="prerequisites_missing",
+        )
+
+    service_states = {
+        service: _enabled_service_status(runner, executable, project, service)
+        for service in (
+            "texttospeech.googleapis.com",
+            "aiplatform.googleapis.com",
+            "generativelanguage.googleapis.com",
+        )
+    }
+    service_identity_ready = _aiplatform_service_identity_status(runner, executable, project)
+    quota_ready = _tts_quota_status(runner, executable, project)
+
+    service_usage_permissions = _project_permission_status(
+        project,
+        ("serviceusage.services.enable", "serviceusage.services.get"),
+    )
+    vertex_endpoint_permission = _project_permission_status(
+        project,
+        ("aiplatform.endpoints.predict",),
+    )
+    voices_list = _authenticated_json_request(
+        "GET",
+        "https://texttospeech.googleapis.com/v1/voices?languageCode=ja-JP",
+        project,
+    )
+    synthesize_empty = _authenticated_json_request(
+        "POST",
+        "https://texttospeech.googleapis.com/v1/text:synthesize",
+        project,
+        {},
+    )
+    tts_authorized = (
+        voices_list.status_code == 200
+        and synthesize_empty.status_code == 400
+        and synthesize_empty.error_status == "INVALID_ARGUMENT"
+    )
+    iam_ready = (
+        service_usage_permissions == "granted"
+        and vertex_endpoint_permission == "granted"
+        and tts_authorized
+    )
+    iam_details = "; ".join(
+        (
+            f"serviceusage={service_usage_permissions}",
+            f"aiplatform.endpoints.predict={vertex_endpoint_permission}",
+            "aiplatform.models.predict=not_testable_on_project_resource",
+            f"texttospeech.voices.list={'granted' if voices_list.status_code == 200 else _http_status(voices_list)}",
+            f"texttospeech.text.synthesize={'granted_schema_validation' if tts_authorized else _http_status(synthesize_empty)}",
+        )
+    )
+
+    gemini_tts_available = _gemini_tts_status(project, location)
+    (
+        instant_custom_voice_method_exposed,
+        instant_custom_voice_allowlisted,
+        instant_custom_voice_blocker,
+    ) = _instant_custom_voice_status(project)
+
+    return GoogleCloudTtsReadiness(
+        texttospeech_api_enabled=service_states["texttospeech.googleapis.com"],
+        aiplatform_api_enabled=service_states["aiplatform.googleapis.com"],
+        generativelanguage_api_enabled=service_states["generativelanguage.googleapis.com"],
+        service_identity_ready=service_identity_ready,
+        iam_ready="true" if iam_ready else "false",
+        iam_details=iam_details,
+        quota_ready=quota_ready,
+        gemini_tts_available=gemini_tts_available,
+        instant_custom_voice_method_exposed=instant_custom_voice_method_exposed,
+        instant_custom_voice_allowlisted=instant_custom_voice_allowlisted,
+        instant_custom_voice_blocker=instant_custom_voice_blocker,
+    )
+
+
+def _enabled_service_status(
+    runner: CommandRunner,
+    executable: str,
+    project: str,
+    service: str,
+) -> str:
+    result = runner(
+        (
+            executable,
+            "services",
+            "list",
+            "--enabled",
+            f"--project={project}",
+            f"--filter=config.name={service}",
+            "--format=value(config.name)",
+        ),
+        False,
+    )
+    if not result.ok:
+        return "unknown"
+    return "true" if service in result.stdout.splitlines() else "false"
+
+
+def _aiplatform_service_identity_status(
+    runner: CommandRunner,
+    executable: str,
+    project: str,
+) -> str:
+    result = runner(
+        (executable, "projects", "get-iam-policy", project, "--format=json"),
+        False,
+    )
+    if not result.ok:
+        return "unknown"
+    try:
+        bindings = json.loads(result.stdout).get("bindings", [])
+    except json.JSONDecodeError:
+        return "unknown"
+    return "true" if any(
+        binding.get("role") == "roles/aiplatform.serviceAgent" for binding in bindings
+    ) else "false"
+
+
+def _tts_quota_status(runner: CommandRunner, executable: str, project: str) -> str:
+    project_number = runner(
+        (executable, "projects", "describe", project, "--format=value(projectNumber)"),
+        False,
+    )
+    if not project_number.ok or not project_number.stdout.strip():
+        return "unknown"
+    quota = runner(
+        (
+            executable,
+            "alpha",
+            "services",
+            "quota",
+            "list",
+            "--service=texttospeech.googleapis.com",
+            f"--consumer=projects/{project_number.stdout.strip()}",
+            "--format=json",
+        ),
+        False,
+    )
+    if not quota.ok:
+        return "unknown"
+    try:
+        entries = json.loads(quota.stdout)
+    except json.JSONDecodeError:
+        return "unknown"
+
+    required_metrics = {
+        "texttospeech.googleapis.com/requests_chirpvoicecloning",
+        "texttospeech.googleapis.com/requests_generatevoicecloningkey",
+    }
+    available_metrics: set[str] = set()
+    for entry in entries:
+        metric = entry.get("metric")
+        for limit in entry.get("consumerQuotaLimits", []):
+            for bucket in limit.get("quotaBuckets", []):
+                if _positive_quota_limit(bucket.get("effectiveLimit")):
+                    available_metrics.add(metric)
+    return "true" if required_metrics.issubset(available_metrics) else "false"
+
+
+def _positive_quota_limit(value: object) -> bool:
+    try:
+        return int(str(value)) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _project_permission_status(project: str, permissions: tuple[str, ...]) -> str:
+    result = _authenticated_json_request(
+        "POST",
+        f"https://cloudresourcemanager.googleapis.com/v1/projects/{project}:testIamPermissions",
+        project,
+        {"permissions": list(permissions)},
+    )
+    if result.status_code != 200:
+        return _http_status(result)
+    granted = set(result.payload.get("permissions", []))
+    return "granted" if granted.issuperset(permissions) else "not_granted"
+
+
+def _gemini_tts_status(project: str, location: str | None) -> str:
+    if not location:
+        return "location_missing"
+    endpoint = (
+        "aiplatform.googleapis.com"
+        if location == "global"
+        else f"{location}-aiplatform.googleapis.com"
+    )
+    responses = [
+        _authenticated_json_request(
+            "POST",
+            (
+                f"https://{endpoint}/v1beta1/projects/{project}/locations/{location}"
+                f"/publishers/google/models/{model}:generateContent"
+            ),
+            project,
+            {},
+        )
+        for model in ("gemini-2.5-flash-tts", "gemini-2.5-pro-tts")
+    ]
+    if all(
+        response.status_code == 400 and response.error_status == "INVALID_ARGUMENT"
+        for response in responses
+    ):
+        return "true"
+    if any(response.status_code == 403 for response in responses):
+        return "false_permission_or_entitlement"
+    if any(response.status_code == 404 for response in responses):
+        return "false_model_or_region_unavailable"
+    return "unknown"
+
+
+def _instant_custom_voice_status(project: str) -> tuple[str, str, str]:
+    endpoints = (
+        "https://texttospeech.googleapis.com",
+        "https://us-texttospeech.googleapis.com",
+        "https://eu-texttospeech.googleapis.com",
+        "https://asia-southeast1-texttospeech.googleapis.com",
+        "https://asia-northeast1-texttospeech.googleapis.com",
+        "https://europe-west2-texttospeech.googleapis.com",
+    )
+    responses = [
+        _authenticated_json_request(
+            "POST",
+            f"{endpoint}/v1beta1/voices:generateVoiceCloningKey",
+            project,
+            {},
+        )
+        for endpoint in endpoints
+    ]
+    if all(
+        response.status_code == 404 and response.error_status == "NOT_FOUND"
+        for response in responses
+    ):
+        return (
+            "false",
+            "false_or_not_exposed",
+            "external_entitlement_not_cli_enablement",
+        )
+    if any(
+        response.status_code == 400 and response.error_status == "INVALID_ARGUMENT"
+        for response in responses
+    ):
+        return (
+            "true",
+            "not_verifiable_without_valid_consent_request",
+            "valid_voice_owner_consent_required",
+        )
+    if any(response.status_code == 403 for response in responses):
+        return (
+            "unknown",
+            "unknown_permission_or_entitlement",
+            "permission_or_external_entitlement",
+        )
+    if any(response.status_code == 429 for response in responses):
+        return "unknown", "unknown_quota_exhausted", "quota_exhausted"
+    return "unknown", "unknown", "endpoint_probe_inconclusive"
+
+
+def _authenticated_json_request(
+    method: str,
+    url: str,
+    project: str,
+    payload: dict[str, Any] | None = None,
+) -> GoogleCloudHttpResult:
+    """Make an ADC request while keeping access tokens and bodies out of health output."""
+    try:
+        import google.auth
+        import google.auth.transport.requests
+
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        credentials.refresh(google.auth.transport.requests.Request())
+    except Exception as exc:  # pragma: no cover - environment-specific ADC errors
+        return GoogleCloudHttpResult(0, type(exc).__name__, "ADC unavailable")
+
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(url, data=data, method=method)
+    request.add_header("Authorization", f"Bearer {credentials.token}")
+    request.add_header("x-goog-user-project", project)
+    if payload is not None:
+        request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return GoogleCloudHttpResult(response.status, payload=_read_json(response.read()))
+    except urllib.error.HTTPError as exc:
+        body = _read_json(exc.read())
+        error = body.get("error", {})
+        return GoogleCloudHttpResult(
+            exc.code,
+            str(error.get("status") or "HTTP_ERROR"),
+            str(error.get("message") or "")[:300],
+            body,
+        )
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return GoogleCloudHttpResult(0, type(exc).__name__, "request unavailable")
+
+
+def _read_json(raw: bytes) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _http_status(result: GoogleCloudHttpResult) -> str:
+    if result.status_code == 0:
+        return result.error_status or "unavailable"
+    return f"http_{result.status_code}_{result.error_status or 'unknown'}"
 
 
 @dataclass(frozen=True)

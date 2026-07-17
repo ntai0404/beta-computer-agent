@@ -36,7 +36,10 @@ def main() -> int:
         upload_source=loaded_config.upload_source,
         enabled_source=loaded_config.enabled_source,
     )
-    provider = GoogleCloudMultimodalProvider(config=config)
+    provider = GoogleCloudMultimodalProvider(
+        config=config,
+        verify_tts_capabilities=True,
+    )
     health = provider.health_status()
 
     print("Google Cloud Multimodal Health")
@@ -62,6 +65,26 @@ def main() -> int:
     print(f"video capability    : {health.video_capability}")
     print(f"structured output   : {health.structured_output_capability}")
     print(f"cloud media upload  : {health.cloud_media_upload}")
+    print(f"texttospeech_api_enabled              : {health.texttospeech_api_enabled}")
+    print(f"aiplatform_api_enabled                : {health.aiplatform_api_enabled}")
+    print(f"generativelanguage_api_enabled         : {health.generativelanguage_api_enabled}")
+    print(f"service_identity_ready                 : {health.service_identity_ready}")
+    print(f"iam_ready                              : {health.iam_ready}")
+    print(f"iam_details                            : {health.iam_details}")
+    print(f"quota_ready                            : {health.quota_ready}")
+    print(f"gemini_tts_available                   : {health.gemini_tts_available}")
+    print(
+        "instant_custom_voice_method_exposed    : "
+        f"{health.instant_custom_voice_method_exposed}"
+    )
+    print(
+        "instant_custom_voice_allowlisted       : "
+        f"{health.instant_custom_voice_allowlisted}"
+    )
+    print(
+        "instant_custom_voice_blocker           : "
+        f"{health.instant_custom_voice_blocker}"
+    )
     if health.blockers:
         print("Blockers:")
         for blocker in health.blockers:
