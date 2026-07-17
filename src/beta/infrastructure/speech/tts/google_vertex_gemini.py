@@ -6,6 +6,7 @@ import base64
 import datetime as dt
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 import wave
@@ -28,6 +29,13 @@ class GeminiTtsResponseMetadata:
     model: str
     mime_type: str
     sample_rate_hz: int
+    prompt_characters: int
+    prompt_build_ms: float
+    auth_ms: float
+    request_start_ms: float
+    response_complete_ms: float
+    wav_write_ms: float
+    api_call_count: int
 
 
 @dataclass(frozen=True)
@@ -36,6 +44,9 @@ class _HttpResponse:
     payload: dict[str, Any]
     error_status: str | None = None
     error_message: str | None = None
+    auth_ms: float = 0.0
+    request_start_ms: float = 0.0
+    response_complete_ms: float = 0.0
 
 
 class GoogleVertexGeminiTtsProvider(TtsProvider):
@@ -67,10 +78,16 @@ class GoogleVertexGeminiTtsProvider(TtsProvider):
         if request.output_path is None:
             raise ValueError("GoogleVertexGeminiTtsProvider requires an output path.")
 
+        synthesis_started = time.monotonic()
+        prompt_started = time.monotonic()
+        request_body = self._request_body(request)
+        prompt_build_ms = (time.monotonic() - prompt_started) * 1_000
+        prompt_text = request_body["contents"]["parts"]["text"]
         response = _authenticated_json_post(
             self._endpoint(),
             self.project,
-            self._request_body(request),
+            request_body,
+            synthesis_started,
         )
         if response.status_code != 200:
             raise GoogleVertexGeminiTtsError(
@@ -80,13 +97,22 @@ class GoogleVertexGeminiTtsProvider(TtsProvider):
         audio_bytes, mime_type = _extract_audio(response.payload)
         sample_rate_hz = _sample_rate_from_mime_type(mime_type)
         output_path = request.output_path
+        wav_write_started = time.monotonic()
         _write_pcm16_wav(output_path, audio_bytes, sample_rate_hz)
+        wav_write_ms = (time.monotonic() - wav_write_started) * 1_000
 
         self.last_response = GeminiTtsResponseMetadata(
             http_status=response.status_code,
             model=self.model,
             mime_type=mime_type,
             sample_rate_hz=sample_rate_hz,
+            prompt_characters=len(prompt_text),
+            prompt_build_ms=prompt_build_ms,
+            auth_ms=response.auth_ms,
+            request_start_ms=response.request_start_ms,
+            response_complete_ms=response.response_complete_ms,
+            wav_write_ms=wav_write_ms,
+            api_call_count=1,
         )
         return SpeechArtifact(
             path=output_path,
@@ -153,8 +179,10 @@ def _authenticated_json_post(
     url: str,
     project: str,
     payload: dict[str, Any],
+    synthesis_started: float,
 ) -> _HttpResponse:
     """POST with ADC while never exposing an access token in exceptions or output."""
+    auth_started = time.monotonic()
     try:
         import google.auth
         import google.auth.transport.requests
@@ -168,6 +196,8 @@ def _authenticated_json_post(
             f"ADC unavailable: {type(exc).__name__}"
         ) from None
 
+    auth_ms = (time.monotonic() - auth_started) * 1_000
+
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -176,9 +206,19 @@ def _authenticated_json_post(
     request.add_header("Authorization", f"Bearer {credentials.token}")
     request.add_header("Content-Type", "application/json")
     request.add_header("x-goog-user-project", project)
+    request_started = time.monotonic()
+    request_start_ms = (request_started - synthesis_started) * 1_000
     try:
         with urllib.request.urlopen(request, timeout=90) as response:
-            return _HttpResponse(response.status, _read_json(response.read()))
+            response_payload = _read_json(response.read())
+            response_complete_ms = (time.monotonic() - synthesis_started) * 1_000
+            return _HttpResponse(
+                response.status,
+                response_payload,
+                auth_ms=auth_ms,
+                request_start_ms=request_start_ms,
+                response_complete_ms=response_complete_ms,
+            )
     except urllib.error.HTTPError as exc:
         body = _read_json(exc.read())
         error = body.get("error", {})
@@ -187,6 +227,9 @@ def _authenticated_json_post(
             body,
             str(error.get("status") or "HTTP_ERROR"),
             str(error.get("message") or "")[:300],
+            auth_ms,
+            request_start_ms,
+            (time.monotonic() - synthesis_started) * 1_000,
         )
     except (urllib.error.URLError, TimeoutError) as exc:
         raise GoogleVertexGeminiTtsError(

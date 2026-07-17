@@ -50,6 +50,8 @@ def test_gemini_tts_writes_pcm_response_as_valid_wav(monkeypatch, tmp_path: Path
     assert provider.last_response is not None
     assert provider.last_response.http_status == 200
     assert provider.last_response.mime_type == "audio/L16;rate=24000"
+    assert provider.last_response.api_call_count == 1
+    assert provider.last_response.prompt_characters > len("Xin chao")
     assert "not a cloned" in artifact.warnings[0]
     with wave.open(str(output), "rb") as wav_file:
         assert wav_file.getnchannels() == 1
