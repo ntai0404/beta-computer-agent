@@ -42,6 +42,7 @@ var/assets/characters/**
 # Generated audio artifacts
 var/artifacts/audio/**
 !var/artifacts/audio/.gitkeep
+var/output/voice-demo/
 
 # Voice analysis results
 var/artifacts/voice-analysis/**
